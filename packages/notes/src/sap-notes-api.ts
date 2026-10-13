@@ -2336,6 +2336,14 @@ export class SapNotesApiClient {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`❌ Playwright note extraction failed: ${errorMessage}`);
+      if (isSessionExpiredError(error) && this.browser) {
+        // The browser now holds a logged-out session. Close it, so the next call
+        // logs on again, and so the save below cannot write that state over the
+        // shared SSO file that the other servers read.
+        await this.browser.close().catch(() => {});
+        this.browser = null;
+        this.browserContext = null;
+      }
       throw new Error(`Playwright extraction failed: ${errorMessage}`);
     } finally {
       // Only close the page, keep the persistent browser alive
