@@ -13,6 +13,7 @@ import type { SapWebAuthenticator } from '@marianfoo/sap-mcp-auth';
 import { createNotesAuthenticator } from './auth.js';
 import { SapNotesApiClient } from './sap-notes-api.js';
 import { logger } from './logger.js';
+import { SERVER_VERSION } from './version.js';
 import {
   NoteSearchInputMcpSchema,
   NoteSearchOutputMcpSchema,
@@ -233,7 +234,7 @@ class HttpSapNoteMcpServer {
   private createMcpServer(): McpServer {
     const mcp = new McpServer({
       name: 'sap-note-search-mcp',
-      version: '0.3.0'
+      version: SERVER_VERSION
     });
 
     // ─── search ──────────────────────────────────────────────────
@@ -426,7 +427,7 @@ class HttpSapNoteMcpServer {
       res.json({
         status: 'healthy',
         server: 'sap-note-search-mcp',
-        version: '0.3.0',
+        version: SERVER_VERSION,
         protocol: 'streamable-http',
         tools: ['search', 'fetch']
       });
