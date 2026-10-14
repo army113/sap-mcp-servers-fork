@@ -2160,11 +2160,15 @@ export class SapNotesApiClient {
 
   private async getNoteWithPlaywright(noteId: string, token: string): Promise<SapNoteDetail | null> {
     let page!: Page;
+    let callBrowser: Browser | null = null;
+    let sessionExpired = false;
 
     try {
       // Reuse persistent browser instead of launching a new one each call
       await this.ensurePersistentBrowser(token);
-      page = await this.browserContext!.newPage();
+      callBrowser = this.browser;
+      const callContext = this.browserContext;
+      page = await callContext.newPage();
 
       // Navigate to the raw notes endpoint
       const rawUrl = `https://me.sap.com/backend/raw/sapnotes/Detail?q=${noteId}&t=E&isVTEnabled=false`;
@@ -2336,13 +2340,15 @@ export class SapNotesApiClient {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`❌ Playwright note extraction failed: ${errorMessage}`);
-      if (isSessionExpiredError(error) && this.browser) {
-        // The browser now holds a logged-out session. Close it, so the next call
-        // logs on again, and so the save below cannot write that state over the
-        // shared SSO file that the other servers read.
-        await this.browser.close().catch(() => {});
-        this.browser = null;
-        this.browserContext = null;
+      sessionExpired = isSessionExpiredError(error);
+      if (sessionExpired) {
+        // Detach only this call's expired browser before awaiting close. Another
+        // request may already have created a replacement that must stay usable.
+        if (this.browser === callBrowser) {
+          this.browser = null;
+          this.browserContext = null;
+        }
+        await callBrowser?.close().catch(() => {});
       }
       throw new Error(`Playwright extraction failed: ${errorMessage}`);
     } finally {
@@ -2350,7 +2356,9 @@ export class SapNotesApiClient {
       if (page) {
         await page.close().catch(() => {});
       }
-      await this.savePersistentStorageState();
+      // An expired request must not save either its logged-out state or a
+      // concurrent request's replacement context before that request completes.
+      if (!sessionExpired) await this.savePersistentStorageState();
     }
   }
 

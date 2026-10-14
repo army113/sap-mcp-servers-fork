@@ -39,3 +39,11 @@ References: [Node os.homedir](https://nodejs.org/api/os.html#oshomedir), [Playwr
 - The original session test used `/never/written`; its no-write assertion could pass because directory creation failed before its storage mock ran. Replaced it with a writable temporary file and byte-for-byte preservation assertions.
 - With #81 applied: build/typecheck, 3 auth tests, 40 Notes/shared-config tests, all three published-bin smoke tests, and MCPB manifest validation pass. Real Chromium locally reproduces the sign-in redirect, preserves the shared file, and uses a fresh browser/state for successful retry.
 - Real Windows behavior is covered by the added Windows CI job. Linux browser fixtures run under Xvfb. No real SAP credentials are needed for these tests; a live corporate MFA login remains environment-specific.
+
+## Concurrent expiry follow-up
+
+Review found that closing an expired browser before clearing its shared references can erase a replacement created by another request while close is pending. An older page can also report expiry after a replacement already exists.
+
+Capture the browser used by the call, detach it only if it is still current, and close that captured browser. An expired call skips state persistence entirely, so it cannot save another request's unfinished context. This needs no lock or new browser manager.
+
+Two deterministic regressions fail on the previous implementation and pass after this fix. All seven session tests and the offline Chromium expiry/retry test pass. The cases cover replacement during close, replacement before expiry is reported, close failure, successful persistence, and both transports' retry paths.

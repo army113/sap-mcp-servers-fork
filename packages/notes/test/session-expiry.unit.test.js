@@ -88,3 +88,42 @@ for (const Server of [SapNoteMcpServer, HttpSapNoteMcpServer]) {
     assert.equal(calls.storageState, 1);
   });
 }
+
+for (const replacementTiming of ['during-close', 'before-expiry']) {
+  test(`an expired call preserves another call's replacement browser (${replacementTiming})`, async t => {
+    const { client, calls, stateFile, originalState } = clientWithBrowser(t);
+    let replacementCloses = 0;
+    let replacementSaves = 0;
+    const replacement = { close: async () => { replacementCloses++; } };
+    const replacementContext = { storageState: async () => { replacementSaves++; } };
+    const replace = () => { client.browser = replacement; client.browserContext = replacementContext; };
+    const ensure = client.ensurePersistentBrowser.bind(client);
+    client.ensurePersistentBrowser = async token => {
+      await ensure(token);
+      const close = client.browser.close;
+      client.browser.close = async () => {
+        await close();
+        // While close waits, a concurrent request can open a new context.
+        if (replacementTiming === 'during-close') replace();
+      };
+      if (replacementTiming === 'before-expiry') {
+        const newPage = client.browserContext.newPage;
+        client.browserContext.newPage = async () => {
+          const page = await newPage();
+          const content = page.content;
+          page.content = async () => { replace(); return content(); };
+          return page;
+        };
+      }
+    };
+    await assert.rejects(client.getNoteWithPlaywright('3096734', 'expired'), /SESSION_EXPIRED/);
+    assert.equal(client.browser, replacement);
+    assert.equal(client.browserContext, replacementContext);
+    assert.equal(calls.browserClosed, 1, 'close the browser used by the expired request');
+    assert.equal(replacementCloses, 0, 'leave the concurrent request running');
+    assert.equal(replacementSaves, 0, 'the expired request must not persist another request before it finishes');
+    assert.equal(readFileSync(stateFile, 'utf8'), originalState);
+    await client.cleanup();
+    assert.equal(replacementCloses, 1, 'the replacement must remain reachable for shutdown');
+  });
+}
