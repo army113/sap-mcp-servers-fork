@@ -71,6 +71,54 @@ test('successful note retrieval saves state and reuses the browser', async t => 
   assert.equal(calls.pageClosed, 2);
 });
 
+test('a call interrupted by sibling expiry cannot save the replacement context', async t => {
+  const { client, calls, stateFile, originalState } = clientWithBrowser(t);
+  await client.ensurePersistentBrowser('valid');
+  const originalBrowser = client.browser;
+  const newPage = client.browserContext.newPage;
+  let replacementSaves = 0;
+  const replacement = { close: async () => {} };
+  const replacementContext = { storageState: async ({ path }) => {
+    replacementSaves++;
+    writeFileSync(path, 'unfinished replacement state');
+  } };
+  client.browserContext.newPage = async () => {
+    const page = await newPage();
+    page.goto = async () => {
+      // A sibling closes our shared browser after expiry; a retry then replaces it.
+      await originalBrowser.close();
+      client.browser = replacement;
+      client.browserContext = replacementContext;
+      throw new Error('Target page, context or browser has been closed');
+    };
+    return page;
+  };
+  await assert.rejects(client.getNoteWithPlaywright('3096734', 'valid'), /Target page, context or browser has been closed/);
+  assert.equal(replacementSaves, 0);
+  assert.equal(readFileSync(stateFile, 'utf8'), originalState);
+  assert.equal(client.browser, replacement);
+  assert.equal(client.browserContext, replacementContext);
+  assert.equal(calls.pageClosed, 1);
+  await client.cleanup();
+});
+
+test('state persistence stops if the context changes while imports are pending', async t => {
+  const { client, calls, stateFile, originalState } = clientWithBrowser(t);
+  await client.ensurePersistentBrowser('valid');
+  let replacementSaves = 0;
+  const saving = client.savePersistentStorageState();
+  // The helper has started but its dynamic imports have not resumed yet.
+  client.browserContext = { storageState: async ({ path }) => {
+    replacementSaves++;
+    writeFileSync(path, 'unfinished replacement state');
+  } };
+  await saving;
+  assert.equal(replacementSaves, 0);
+  assert.equal(calls.storageState, 0, 'the old context must not overwrite newer shared state either');
+  assert.equal(readFileSync(stateFile, 'utf8'), originalState);
+  await client.cleanup();
+});
+
 for (const Server of [SapNoteMcpServer, HttpSapNoteMcpServer]) {
   test(`${Server.name} retries an expired note with a fresh browser and token`, async t => {
     const { client, calls } = clientWithBrowser(t);

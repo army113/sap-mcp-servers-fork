@@ -2026,13 +2026,15 @@ export class SapNotesApiClient {
   }
 
   private async savePersistentStorageState(): Promise<void> {
-    if (!this.browserContext || !this.config.ssoStorageStateFile) return;
+    const context = this.browserContext;
+    if (!context || !this.config.ssoStorageStateFile) return;
 
     try {
       const { dirname } = await import('path');
       const { mkdirSync } = await import('fs');
+      if (this.browserContext !== context) return;
       mkdirSync(dirname(this.config.ssoStorageStateFile), { recursive: true });
-      await this.browserContext.storageState({ path: this.config.ssoStorageStateFile });
+      await context.storageState({ path: this.config.ssoStorageStateFile });
       logger.debug(`Saved updated SAP SSO browser state to ${this.config.ssoStorageStateFile}`);
     } catch (error) {
       logger.warn(`Failed to save SAP SSO browser state: ${error instanceof Error ? error.message : String(error)}`);
@@ -2356,9 +2358,9 @@ export class SapNotesApiClient {
       if (page) {
         await page.close().catch(() => {});
       }
-      // An expired request must not save either its logged-out state or a
-      // concurrent request's replacement context before that request completes.
-      if (!sessionExpired) await this.savePersistentStorageState();
+      // Save only this call's still-current, non-expired session. A sibling may
+      // have closed our browser and started a replacement while this call ran.
+      if (!sessionExpired && this.browser === callBrowser) await this.savePersistentStorageState();
     }
   }
 
