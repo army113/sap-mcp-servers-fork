@@ -95,3 +95,16 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Test Notes browser sessions without live SAP
         run: xvfb-run --auto-servernum node --test packages/notes/test/*.browser.mjs
+
+  auth-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.12.0
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify credential boundaries with synthetic browser forms
+        run: npm run test:browser -w @marianfoo/sap-mcp-auth
