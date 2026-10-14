@@ -2,6 +2,7 @@
 import { config } from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join, isAbsolute, resolve } from 'path';
+import { homedir } from 'os';
 import { existsSync, realpathSync } from 'fs';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -11,6 +12,7 @@ import type { SapWebAuthenticator } from '@marianfoo/sap-mcp-auth';
 import { createNotesAuthenticator } from './auth.js';
 import { SapNotesApiClient } from './sap-notes-api.js';
 import { logger } from './logger.js';
+import { SERVER_VERSION } from './version.js';
 import { resolveHeadful } from './headful.js';
 import {
   NoteSearchInputMcpSchema,
@@ -31,7 +33,7 @@ function resolveOptionalPath(value: string | undefined): string | undefined {
 
   let resolvedPath = value;
   if (resolvedPath.startsWith('~')) {
-    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const home = process.env.HOME || homedir();
     resolvedPath = join(home, resolvedPath.slice(2));
   }
 
@@ -69,7 +71,7 @@ class SapNoteMcpServer {
     // Create MCP server with official SDK
     this.mcpServer = new McpServer({
       name: 'sap-note-search-mcp',
-      version: '0.3.0'
+      version: SERVER_VERSION
     });
 
     this.setupTools();
@@ -95,7 +97,7 @@ class SapNoteMcpServer {
     )!;
     const ssoStorageStateFile = resolveOptionalPath(
       process.env.SAP_SSO_STORAGE_STATE ||
-      join(process.env.HOME || process.cwd(), '.sap-mcp', 'sso-storage-state.json')
+      join(process.env.HOME || homedir(), '.sap-mcp', 'sso-storage-state.json')
     );
     const hasSsoStorageState = !!(ssoStorageStateFile && existsSync(ssoStorageStateFile));
 

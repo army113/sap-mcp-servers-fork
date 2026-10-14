@@ -2026,13 +2026,15 @@ export class SapNotesApiClient {
   }
 
   private async savePersistentStorageState(): Promise<void> {
-    if (!this.browserContext || !this.config.ssoStorageStateFile) return;
+    const context = this.browserContext;
+    if (!context || !this.config.ssoStorageStateFile) return;
 
     try {
       const { dirname } = await import('path');
       const { mkdirSync } = await import('fs');
+      if (this.browserContext !== context) return;
       mkdirSync(dirname(this.config.ssoStorageStateFile), { recursive: true });
-      await this.browserContext.storageState({ path: this.config.ssoStorageStateFile });
+      await context.storageState({ path: this.config.ssoStorageStateFile });
       logger.debug(`Saved updated SAP SSO browser state to ${this.config.ssoStorageStateFile}`);
     } catch (error) {
       logger.warn(`Failed to save SAP SSO browser state: ${error instanceof Error ? error.message : String(error)}`);
@@ -2160,11 +2162,15 @@ export class SapNotesApiClient {
 
   private async getNoteWithPlaywright(noteId: string, token: string): Promise<SapNoteDetail | null> {
     let page!: Page;
+    let callBrowser: Browser | null = null;
+    let sessionExpired = false;
 
     try {
       // Reuse persistent browser instead of launching a new one each call
       await this.ensurePersistentBrowser(token);
-      page = await this.browserContext!.newPage();
+      callBrowser = this.browser;
+      const callContext = this.browserContext;
+      page = await callContext.newPage();
 
       // Navigate to the raw notes endpoint
       const rawUrl = `https://me.sap.com/backend/raw/sapnotes/Detail?q=${noteId}&t=E&isVTEnabled=false`;
@@ -2336,13 +2342,25 @@ export class SapNotesApiClient {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`❌ Playwright note extraction failed: ${errorMessage}`);
+      sessionExpired = isSessionExpiredError(error);
+      if (sessionExpired) {
+        // Detach only this call's expired browser before awaiting close. Another
+        // request may already have created a replacement that must stay usable.
+        if (this.browser === callBrowser) {
+          this.browser = null;
+          this.browserContext = null;
+        }
+        await callBrowser?.close().catch(() => {});
+      }
       throw new Error(`Playwright extraction failed: ${errorMessage}`);
     } finally {
       // Only close the page, keep the persistent browser alive
       if (page) {
         await page.close().catch(() => {});
       }
-      await this.savePersistentStorageState();
+      // Save only this call's still-current, non-expired session. A sibling may
+      // have closed our browser and started a replacement while this call ran.
+      if (!sessionExpired && this.browser === callBrowser) await this.savePersistentStorageState();
     }
   }
 
