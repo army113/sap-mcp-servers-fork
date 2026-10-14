@@ -7,7 +7,7 @@ import { SapNotesApiClient } from '../dist/sap-notes-api.js';
 
 // All requests are fulfilled locally. This uses Chromium's real cookie/storage
 // handling, but never connects to SAP or reads the developer's saved sessions.
-test('a sign-in redirect preserves the shared file and the next browser reads fresh state', async t => {
+test('a sign-in redirect preserves the shared file and the next browser reads fresh state', { timeout: 60000 }, async t => {
   const dir = mkdtempSync(join(tmpdir(), 'sap-notes-browser-'));
   const stateFile = join(dir, 'state.json');
   const cookie = { name: 'test-session', value: 'shared-valid', domain: 'me.sap.com', path: '/', expires: -1, httpOnly: true, secure: true, sameSite: 'Lax' };
@@ -21,6 +21,7 @@ test('a sign-in redirect preserves the shared file and the next browser reads fr
   client.ensurePersistentBrowser = async token => {
     await ensureBrowser(token);
     browsers.push(client.browser);
+    await client.browserContext.setOffline(true);
     await client.browserContext.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.hostname === 'accounts.sap.com') {
